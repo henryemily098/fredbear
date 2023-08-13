@@ -37,6 +37,7 @@ module.exports = {
         if(!connection) {
             try {
                 if(queue) await queue.deleteOne();
+                if(client.players[interaction.guildId]) delete client.players[interaction.guildId];
                 await interaction.reply({
                     content: "I'm already leave voice channel!",
                     ephemeral: true
@@ -69,7 +70,7 @@ module.exports = {
                     if((permissions & client.permissions[i]) === client.permissions[i]) confirm = true;
                 }
             }
-            if(queue.dj_user.id === interaction.user.id) confirm = true;
+            if(queue.dj_user_id === interaction.user.id) confirm = true;
             if(!confirm) {
                 try {
                     await interaction.reply({
@@ -98,7 +99,8 @@ module.exports = {
                 console.log(error);
             }
         }
-        
+    
+        if(client.players[interaction.guildId]) delete client.players[interaction.guildId];
         connection.destroy();
         try {
             await interaction.reply({ content: "<:check_mark:819771972283662367>Disconnect from voice channel!" });

@@ -73,7 +73,6 @@ async function play(song, guild_id, client) {
 
     const resource = createAudioResource(stream.stream_data, { inlineVolume: true, inputType: stream.type });
     resource.volume.setVolume(queue.volume / 100);
-
     if(!client.players[guild_id]) {
         const player = createAudioPlayer();
         player
@@ -168,7 +167,7 @@ async function endedHandler(guild_id, client) {
         if(queue.loop === 0 || queue.loop === 1) {
             if(queue.message_id) {
                 try {
-                    let channel = client.channels.cache.get(queue.channel_id);
+                    let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
                     let messages = await channel.messages.fetch();
                     let message = messages.get(queue.message_id);
                     if(message) await message.delete();

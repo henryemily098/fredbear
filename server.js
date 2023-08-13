@@ -1,7 +1,8 @@
 require("dotenv").config();
-const { Client, starboard, handle } = require("./src");
-const { REST, Routes, Events, ActivityType, ButtonBuilder, ActionRowBuilder } = require("discord.js");
-const { getVoiceConnection } = require("@discordjs/voice");
+const { Client, starboard, handle, play } = require("./src");
+const { REST, Routes, Events, ActivityType, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require("discord.js");
+const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, VoiceConnectionStatus, entersState } = require("@discordjs/voice");
+const { Queue } = require("./data");
 const { App } = require("./api");
 
 const fs = require("fs");
@@ -47,6 +48,9 @@ app.get("*", (req, res) => {
 
 client.on(Events.ClientReady, () => {
     console.log(`> ${client.user.tag} it's ready!`);
+    setTimeout(() => {
+        checkQueue().catch(console.log);
+    }, 5000);
     client.user.setPresence({
         status: "dnd",
         activities: [{ name: "Your Nightmare...", type: ActivityType.Watching }]
@@ -99,10 +103,21 @@ client.on(Events.MessageReactionRemove, async(reaction, user) => {
 client.on(Events.VoiceStateUpdate, async(oldState, newState) => {
     if(!oldState.guild && !newState.guild) return;
     
-    let queue = client.queue.get(oldState.guild.id);
+    let queue = null;
     let connection = getVoiceConnection(oldState.guild.id);
+    try {
+        queue = await Queue.findOne({ guild_id: oldState.guild.id });
+    } catch (error) {
+        console.log(error);
+    }
     if(!connection) {
-        if(queue) client.queue.delete(oldState.guild.id);
+        if(queue) {
+            try {
+                await queue.deleteOne();
+            } catch (error) {
+                console.log(error);
+            }
+        }
         return;
     }
     if(!queue) return;
@@ -111,61 +126,241 @@ client.on(Events.VoiceStateUpdate, async(oldState, newState) => {
     let clientVoiceChannel = client.channels.cache.get(channel ? channel.id : oldState.channelId);
     if(!clientVoiceChannel || !clientVoiceChannel.isVoiceBased()) return;
     
-    let members = clientVoiceChannel.members.filter(m => !m.user.bot && m.user.id !== client.user.id).toJSON();
+    let members = clientVoiceChannel.members.filter(m => !m.user.bot && m.user.id !== client.user.id);
     if(!channel) {
         if(member.user.id === client.user.id) {
             connection.destroy();
-            queue.message.delete().catch(console.log);
-            client.queue.delete(oldState.guild.id);
+            try {
+                let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
+                let messages = await channel.messages.fetch();
+                let message = messages.get(queue.message_id);
+                if(message) await message.delete();
+                await queue.deleteOne();
+            } catch (error) {
+                console.log(error);
+            }
         }
-        if(member.user.id === queue.dj_user.id) {
-            if(members && members.length) queue.dj_user = members[Math.floor(Math.random()*members.length)].user;
+        if(member.user.id === queue.dj_user_id) {
+            if(members && members.size) queue.dj_user_id = members.at(Math.floor(Math.random()*members.size)).user.id;
             else {
-                let actionRow = modifyComponent(queue);
-                queue.dj_user = null;
-                queue.message.edit({ components: [actionRow] }).catch(console.log);
+                let actionRow = null;
+                try {
+                    actionRow = await modifyComponent(queue);
+                } catch (error) {
+                    console.log(error)
+                }
+                queue.dj_user_id = null;
+                
+                try {
+                    let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
+                    let messages = await channel.messages.fetch();
+                    let message = messages.get(queue.message_id);
+                    if(message) await message.edit({ components: [actionRow] })
+                    await queue.save();
+                } catch (error) {
+                    console.log(error);
+                }
             }
         }
     }
     else {
         if(member.user.id === client.user.id) {
-            if(members.length >= 1) queue.dj_user = members[Math.floor(Math.random()*members.length)].user;
+            if(members.size >= 1) queue.dj_user_id = members.at(Math.floor(Math.random()*members.length)).user.id;
             else {
-                let actionRow = modifyComponent(queue);
-                queue.dj_user = null;
-                queue.message.edit({ components: [actionRow] }).catch(console.log);
+                let actionRow = null;
+                try {
+                    actionRow = await modifyComponent(queue);
+                } catch (error) {
+                    console.log(error)
+                }
+                queue.dj_user_id = null;
+                
+                try {
+                    let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
+                    let messages = await channel.messages.fetch();
+                    let message = messages.get(queue.message_id);
+                    if(message) await message.edit({ components: [actionRow] })
+                    await queue.save();
+                } catch (error) {
+                    console.log(error);
+                }
             }
         }
         else {
             if(channel.id === connection.joinConfig.channelId) {
-                if(members.length === 1) queue.dj_user = member.user;
+                if(members.size === 1) queue.dj_user_id = member.user.id;
             }
             else {
-                if(queue.dj_user && (member.user.id === queue.dj_user.id)) {
-                    if(members.length) queue.dj_user = members[Math.floor(Math.random()*members.length)].user;
+                if(member.user.id === queue.dj_user_id) {
+                    if(members.size) queue.dj_user_id = members.at(Math.floor(Math.random()*members.size)).user.id;
                     else {
-                        let actionRow = modifyComponent(queue);
-                        queue.dj_user = null;
-                        queue.message.edit({ components: [actionRow] }).catch(console.log);
+                        let actionRow = null;
+                        try {
+                            actionRow = await modifyComponent(queue);
+                        } catch (error) {
+                            console.log(error)
+                        }
+                        queue.dj_user_id = null;
+
+                        try {
+                            let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
+                            let messages = await channel.messages.fetch();
+                            let message = messages.get(queue.message_id);
+                            if(message) await message.edit({ components: [actionRow] })
+                        } catch (error) {
+                            console.log(error);
+                        }
                     }
                 }
+            }
+            try {
+                await queue.save();
+            } catch (error) {
+                
             }
         }
     }
 });
 
-function modifyComponent(queue) {
+async function modifyComponent(queue) {
     let actionRow = new ActionRowBuilder();
-    let actions = queue.message.components[0];
+    let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
+    let messages = await channel.messages.fetch();
+    let message = messages.get(queue.message_id);
+
+    let actions = message.components[0];
     for (let i = 0; i < actions.components.length; i++) {
         let component = actions.components[i];
         actionRow.addComponents(
             new ButtonBuilder()
                 .setCustomId(component.customId)
-                .setEmoji(component.customId === "player" ? "▶️" : component.emoji)
+                .setEmoji(component.customId === "song_player" ? "▶️" : component.emoji)
                 .setStyle(component.style)
         );
     }
-    queue.player.pause();
+    client.players[queue.guild_id].pause();
     return actionRow;
+}
+
+async function checkQueue() {
+    let data = null;
+    try {
+        data = await Queue.find();
+    } catch (error) {
+        console.log(error);
+    }
+    data.forEach(async queue => {
+        let connection = getVoiceConnection(queue.guild_id);
+        if(!connection) {
+            try {
+                let guild = client.guilds.cache.get(queue.guild_id);
+                let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
+                let messages = await channel.messages.fetch();
+                let message = messages.get(queue.message_id);
+                if(message) await message.delete();
+
+                connection = joinVoiceChannel({
+                    guildId: queue.guild_id,
+                    channelId: queue.channel_id,
+                    adapterCreator: guild.voiceAdapterCreator
+                });
+    
+                const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
+                    const newUdp = Reflect.get(newNetworkState, 'udp');
+                    clearInterval(newUdp?.keepAliveInterval);
+                }
+                  
+                  connection.on('stateChange', (oldState, newState) => {
+                    const oldNetworking = Reflect.get(oldState, 'networking');
+                    const newNetworking = Reflect.get(newState, 'networking');
+                  
+                    oldNetworking?.off('stateChange', networkStateChangeHandler);
+                    newNetworking?.on('stateChange', networkStateChangeHandler);
+                });
+                
+                let voiceChannel = client.channels.cache.get(queue.channel_id);
+                if(!voiceChannel) {
+                    try {
+                        connection.destroy();
+                        await queue.deleteOne();
+                    } catch (error) {
+                        console.log(error);
+                    }
+                    return;
+                }
+
+                let members = voiceChannel.members.filter(m => !m.user.bot);
+                if(members.size) await play(queue.songs[queue.index], queue.guild_id, client);
+                else {
+                    const player = createAudioPlayer();
+                    player
+                        .on(AudioPlayerStatus.Playing, async() => {
+                            try {
+                                queue.playing = true;
+                                await queue.save();
+                            } catch (error) {
+                                console.log(error);
+                            }
+                        })
+                        .on(AudioPlayerStatus.Paused, async() => {
+                            try {
+                                queue.playing = false;
+                                await queue.save();
+                            } catch (error) {
+                                console.log(error);
+                            }
+                        })
+                        .on(AudioPlayerStatus.Idle, () => endedHandler(guild_id, client).catch(console.log))
+                        .on("error", () => endedHandler(guild_id, client).catch(console.log));
+                    client.players[queue.guild_id] = player;
+
+                    await entersState(connection, VoiceConnectionStatus.Ready, 30000);
+                    if(!connection.state.subscription) connection.subscribe(client.players[queue.guild_id]);
+
+                    let song = queue.songs[queue.index];
+                    let embed = new EmbedBuilder()
+                        .setColor(client.config.defaultColor)
+                        .setAuthor({ name: "| Now Playing", iconURL: client.user.displayAvatarURL({ size: 1024 }) })
+                        .setDescription(`[${song.title}](${song.url}) - [<@${song.requestedUserId}>]`);
+            
+                    let action = new ActionRowBuilder()
+                        .setComponents([
+                            new ButtonBuilder()
+                                .setCustomId("song_player")
+                                .setEmoji("▶")
+                                .setStyle(ButtonStyle.Primary),
+                            new ButtonBuilder()
+                                .setCustomId("song_loop")
+                                .setEmoji(queue.loop === 0 ? "❌" : queue.loop === 1 ? "🔁" : queue.loop === 2 ? "🔂" : "❌")
+                                .setStyle(ButtonStyle.Primary),
+                            new ButtonBuilder()
+                                .setCustomId("song_shuffle")
+                                .setEmoji("🔀")
+                                .setStyle(queue.shuffle ? ButtonStyle.Success : ButtonStyle.Secondary),
+                            new ButtonBuilder()
+                                .setCustomId("song_queue")
+                                .setEmoji("<:queue:1064506068501282856>")
+                                .setStyle(ButtonStyle.Danger)
+                        ]);
+                    
+                    let message = null;
+                    try {
+                        message = await channel.send({
+                            embeds: [embed],
+                            components: [action]
+                        });
+                    } catch (error) {
+                        console.log(error);
+                    }
+
+                    queue.playing = false;
+                    queue.message_id = message?.id;
+                    await queue.save();
+                }
+            } catch (error) {
+                console.log(error);
+                connection.destroy();
+            }
+        }
+    });
 }

@@ -1,6 +1,9 @@
 const { Queue } = require("../data");
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require("discord.js");
-const { getVoiceConnection } = require("@discordjs/voice");
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { getVoiceConnection, createAudioResource, StreamType } = require("@discordjs/voice");
+const { search } = require("scrape-youtube");
+const { stream:playdl } = require("play-dl");
+const { default:scdl } = require("soundcloud-downloader");
 const queueHandle = require("./queue");
 
 /**
@@ -38,27 +41,6 @@ async function interactionButtonHandle(interaction) {
     let [type, sub, num, filter] = interaction.customId.split("_");
     if(type.toLowerCase() === "song") {
         let queue = null;
-        let connection = getVoiceConnection(interaction.guildId)
-        let { channel } = interaction.member.voice;
-        let action = new ActionRowBuilder()
-            .setComponents([
-                new ButtonBuilder()
-                    .setCustomId("player")
-                    .setEmoji(queue.playing ? "⏸" : "▶️")
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId("loop")
-                    .setEmoji(queue.loop === 0 ? "❌" : queue.loop === 1 ? "🔁" : queue.loop === 2 ? "🔂" : "❌")
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId("shuffle")
-                    .setEmoji("🔀")
-                    .setStyle(queue.shuffle ? ButtonStyle.Primary : ButtonStyle.Secondary),
-                new ButtonBuilder()
-                    .setCustomId("queue")
-                    .setEmoji("<:queue:1064506068501282856>")
-                    .setStyle(ButtonStyle.Danger)
-            ]);
         try {
             queue = await Queue.findOne({ guild_id: interaction.guildId });
         } catch (error) {
@@ -76,6 +58,41 @@ async function interactionButtonHandle(interaction) {
             }
             return;
         }
+        if(queue.message_id !== interaction.message.id) {
+            let urlMessage = `https://discord.com/channels/${interaction.guildId}/${queue.songs[queue.index].textChannelId}/${queue.message_id}`;
+            try {
+                await interaction.reply({
+                    content: `You're not using the real control! ${queue.message_id ? `[Click here to jump!](${urlMessage})` : ""}`,
+                    ephemeral: true
+                });
+                await interaction.message.delete();
+            } catch (error) {
+                console.log(error);
+            }
+            return;
+        }
+
+        let connection = getVoiceConnection(interaction.guildId)
+        let { channel } = interaction.member.voice;
+        let action = new ActionRowBuilder()
+            .setComponents([
+                new ButtonBuilder()
+                    .setCustomId("song_player")
+                    .setEmoji("⏸")
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId("song_loop")
+                    .setEmoji(queue.loop === 0 ? "❌" : queue.loop === 1 ? "🔁" : queue.loop === 2 ? "🔂" : "❌")
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId("song_shuffle")
+                    .setEmoji("🔀")
+                    .setStyle(queue.shuffle ? ButtonStyle.Success : ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId("song_queue")
+                    .setEmoji("<:queue:1064506068501282856>")
+                    .setStyle(ButtonStyle.Danger)
+            ]);
         if(!channel && sub.toLowerCase() === "queue") {
             try {
                 await interaction.reply({
@@ -132,13 +149,55 @@ async function interactionButtonHandle(interaction) {
             }
         }
 
-        let index = action.components.map(i => i.data.custom_id).indexOf(i.customId);
+        let index = action.components.map(i => i.data.custom_id).indexOf(interaction.customId);
         let component = action.components[index];
 
         if(sub.toLowerCase() === "player") {
-            if(queue.playing) interaction.client.players[interaction.guildId].pause();
-            else interaction.client.players[interaction.guildId].unpause();
-            component.setEmoji(queue.playing ? "▶️" : "⏸");
+            if(interaction.client.players[interaction.guildId].state.resource) {
+                if(queue.playing) interaction.client.players[interaction.guildId].pause();
+                else interaction.client.players[interaction.guildId].unpause();
+                component.setEmoji(queue.playing ? "▶" : "⏸");
+            }
+            else {
+                let stream = null;
+                try {
+                    let song = queue.songs[queue.index];
+                    if(song.type === "youtube") {
+                        let data = await playdl(song.url);
+                        stream = { stream_data: data.stream, type: data.type }
+                    }
+                    else if(song.type === "spotify") {
+                        if(!song.youtube_url) {
+                            let results = await search(`${song.title} - ${song.artists.map(artist => artist.name).join(" & ")} Topic`);
+                            song['youtube_url'] = results.videos[0].link;
+                        }
+            
+                        queue.songs.splice(queue.index, 1);
+                        let nextSongs = queue.songs.splice(queue.index, queue.songs.length);
+                        queue.songs.push(song, ...nextSongs);
+            
+                        let data = await playdl(song.youtube_url);
+                        stream = { stream_data: data.stream, type: data.type };
+                    }
+                    else if(song.type === "soundcloud") stream = { stream_data: await scdl.downloadFormat(song.url, scdl.FORMATS.MP3), type: StreamType.Arbitrary }
+                } catch (error) {
+                    console.log(error);
+                    return;
+                }
+                
+                let resource = createAudioResource(stream.stream_data, { inlineVolume: true, inputType: stream.type });
+                resource.volume.setVolume(queue.volume / 100);
+                
+                component.setEmoji("⏸");
+                interaction.client.players[interaction.guildId].play(resource);
+                queue.playing = true;
+
+                try {
+                    await queue.save();
+                } catch (error) {
+                    console.log(error);
+                }
+            }
             
             try {
                 await interaction.update({ components: [action] });
@@ -156,7 +215,7 @@ async function interactionButtonHandle(interaction) {
             queue.shuffle = !queue.shuffle;
             component.setStyle(queue.shuffle ? ButtonStyle.Primary : ButtonStyle.Secondary);
             
-            if(queue.shuffle) queue.songs = client.shuffleArray(queue.songs);
+            if(queue.shuffle) queue.songs = interaction.client.shuffleArray(queue.songs);
             else queue.songs = queue.songs.sort((a, b) => a.index - b.index);
         }
         else if(sub.toLowerCase() === "queue") {
