@@ -66,6 +66,11 @@ module.exports = {
             }
             return;
         }
+        else {
+            let confirm = false;
+            let permission = channel.permissionFor(client.user);
+            if(permission.has("Connect")) return;
+        }
 
         let query = interaction.options.get("query", true).value;
         let soundcloudMobileRegex = /^https?:\/\/(on\.soundcloud\.com)\/(.*)$/;

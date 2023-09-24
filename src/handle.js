@@ -38,7 +38,7 @@ async function interactionCommandHandle(interaction) {
  * @param {import("discord.js").ButtonInteraction} interaction 
  */
 async function interactionButtonHandle(interaction) {
-    let [type, sub, num, filter] = interaction.customId.split("_");
+    let [type, sub] = interaction.customId.split("_");
     if(type.toLowerCase() === "song") {
         let queue = null;
         try {
@@ -115,7 +115,8 @@ async function interactionButtonHandle(interaction) {
                 console.log(error)
             }
         }
-        if(sub.toLowerCase() !== "queue" && channel.id !== connection.joinConfig.channelId) {
+        console.log(sub.toLowerCase() !== "queue" && (!channel || channel.id !== connection.joinConfig.channelId));
+        if(sub.toLowerCase() !== "queue" && (!channel || channel.id !== connection.joinConfig.channelId)) {
             let { channelId } = connection.joinConfig;
             try {
                 await interaction.reply({
@@ -147,6 +148,7 @@ async function interactionButtonHandle(interaction) {
             } catch (error) {
                 console.log(error);
             }
+            return;
         }
 
         let index = action.components.map(i => i.data.custom_id).indexOf(interaction.customId);
@@ -254,76 +256,71 @@ async function interactionButtonHandle(interaction) {
             return;
         }
 
-        let number = parseInt(num);
-        let isFilter = filter.toLowerCase() === "filter";
+        let queueId = `${interaction.user.id}-${interaction.guildId}`;
+        if(!interaction.client.queue[queueId]) {
+            interaction.client.queue[queueId] = {
+                page: 1,
+                first: 0,
+                second: 5
+            }
+        }
+
         let currentSong = queue.songs[queue.index];
         let row = new ActionRowBuilder()
             .setComponents([
                 new ButtonBuilder()
                     .setEmoji("<:Previous_Page:897314282872655983>")
-                    .setCustomId("queue_btnLeft_0_nonfilter")
-                    .setDisabled(true)
+                    .setCustomId("queue_btnLeft")
                     .setStyle(ButtonStyle.Success),
                 new ButtonBuilder()
                     .setEmoji("<:Next_Page:897289358187589663>")
-                    .setCustomId("queue_btnRight_5_nonfilter")
-                    .setDisabled(false)
+                    .setCustomId("queue_btnRight")
                     .setStyle(ButtonStyle.Success)
             ]);
-            if(sub === "btnLeft") {
-                number -= 5;
-                for (let i = 0; i < row.components.length; i++) {
-                    let button = row.components[i];
-                    let typeBtn = button.data.custom_id.split("_")[1];
-                    if(typeBtn === "btnLeft") button.setCustomId(`queue_btnLeft_${number}_${isFilter ? "filter" : "nonfilter"}`);
-                    else if(typeBtn === "btnRight") button.setCustomId(`queue_btnLeft_${number + 5}_${isFilter ? "filter" : "nonfilter"}`)
-                    
-                    if(number === 0 && typeBtn === "btnLeft") button.setDisabled(true);
-                    else if(number > 0 && typeBtn === "btnLeft") button.setDisabled(false);
-                }
-            }
-            else if(sub === "btnRight") {
-                number += 5;
-                for (let i = 0; i < row.components.length; i++) {
-                    let button = row.components[i];
-                    let typeBtn = button.data.custom_id.split("_")[1];
-                    if(typeBtn === "btnLeft") button.setCustomId(`queue_btnLeft_${number - 5}_${isFilter ? "filter" : "nonfilter"}`);
-                    else if(typeBtn === "btnRight") button.setCustomId(`queue_btnLeft_${number}_${isFilter ? "filter" : "nonfilter"}`)
-                
-                    if(number >= queue.songs.length && typeBtn === "btnRight") button.setDisabled(true);
-                    else if(number > 0 && typeBtn === "btnRight") button.setDisabled(false);
-                }
-            }
+        if(sub === "btnLeft") {
+            interaction.client.queue[queueId].page -= 1;
+            interaction.client.queue[queueId].first -= 5;
+            interaction.client.queue[queueId].second -= 5;
+        }
+        else if(sub === "btnRight") {
+            interaction.client.queue[queueId].page += 1;
+            interaction.client.queue[queueId].first += 5;
+            interaction.client.queue[queueId].second += 5;
+        }
 
-            let components = [];
-            if(queue.songs.length > 5) components.push(row);
+        row.components[0].setDisabled(interaction.client.queue[queueId].first <= 0 ? true : false);
+        row.components[1].setDisabled(interaction.client.queue[queueId].second >= queue.songs.length ? true : false);
+        
+        let components = [];
+        if(queue.songs.length > 5) components.push(row);
 
-            let djUser = interaction.client.users.cache.get(queue.dj_user_id);
-            let currentSongRequester = interaction.client.users.cache.get(currentSong.requestedUserId);
-            let page_count = Math.floor(queue.songs.length % 5 === 0 ? queue.songs.length / 5 : (queue.songs.length / 5) + 1);
-            let content = `
+        let djUser = interaction.client.users.cache.get(queue.dj_user_id);
+        let currentSongRequester = interaction.client.users.cache.get(currentSong.requestedUserId);
+        let page_count = Math.floor(queue.songs.length % 5 === 0 ? queue.songs.length / 5 : (queue.songs.length / 5) + 1);
+        let content = `
+            
 \`\`\`css
 ▬▬▬▬▬▬ ${interaction.guild.name} ▬▬▬▬▬▬
 
-Songs in Queue: ${queue.songs.length} │ Page: 1/${page_count} | Current DJ: ${djUser ? djUser.username : "None"}
+Songs in Queue: ${queue.songs.length} │ Page: ${interaction.client.queue[queueId].page}/${page_count} | Current DJ: ${djUser ? djUser.username : "None"}
 
 Current Song: 
 ${queue.index+1}). ${currentSong.title.length > 35 ? `${currentSong.title.substring(0, 32)}...` : currentSong.title} - [${currentSongRequester ? currentSongRequester.username : "Unknown User"}]
 
 Queue Songs:
-${queue.songs.splice(sub === "btnLeft" ? number : number - 5, 5).map((song, index) => {
+${queue.songs.splice(interaction.client.queue[queueId].first, 5).map((song, index) => {
     let requestedUser = interaction.client.users.cache.get(song.requestedUserId);
-    return `${index+1}). ${song.title.length > 35 ? `${song.title.substring(0, 32)}...` : song.title} - [${requestedUser ? requestedUser.username : "Unknown User"}]`;
+    return `${index+1+interaction.client.queue[queueId].first}). ${song.title.length > 35 ? `${song.title.substring(0, 32)}...` : song.title} - [${requestedUser ? requestedUser.username : "Unknown User"}]`;
 }).join("\n")}
 \`\`\`
 `;
-            try {
-                await interaction.update({
-                    content, components
-                });
-            } catch (error) {
-                console.log(error);
-            }
+        try {
+            await interaction.update({
+                content, components
+            });
+        } catch (error) {
+            console.log(error);
+        }
     }
 }
 

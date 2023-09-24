@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { Client, starboard, handle, play } = require("./src");
+const { Client, starboard, handle, play, endedHandle } = require("./src");
 const { REST, Routes, Events, ActivityType, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require("discord.js");
 const { getVoiceConnection, joinVoiceChannel, createAudioPlayer, AudioPlayerStatus, VoiceConnectionStatus, entersState } = require("@discordjs/voice");
 const { Queue } = require("./data");
@@ -165,6 +165,7 @@ client.on(Events.VoiceStateUpdate, async(oldState, newState) => {
     }
     else {
         if(member.user.id === client.user.id) {
+            queue.channel_id = channel.id;
             if(members.size >= 1) queue.dj_user_id = members.at(Math.floor(Math.random()*members.length)).user.id;
             else {
                 let actionRow = null;
@@ -179,11 +180,15 @@ client.on(Events.VoiceStateUpdate, async(oldState, newState) => {
                     let channel = client.channels.cache.get(queue.songs[queue.index].textChannelId);
                     let messages = await channel.messages.fetch();
                     let message = messages.get(queue.message_id);
-                    if(message) await message.edit({ components: [actionRow] })
-                    await queue.save();
+                    if(message) await message.edit({ components: [actionRow] });
                 } catch (error) {
                     console.log(error);
                 }
+            }
+            try {
+                await queue.save();
+            } catch (error) {
+                console.log(error);
             }
         }
         else {
@@ -310,8 +315,8 @@ async function checkQueue() {
                                 console.log(error);
                             }
                         })
-                        .on(AudioPlayerStatus.Idle, () => endedHandler(guild_id, client).catch(console.log))
-                        .on("error", () => endedHandler(guild_id, client).catch(console.log));
+                        .on(AudioPlayerStatus.Idle, () => endedHandler(queue.guild_id, client).catch(console.log))
+                        .on("error", () => endedHandle(queue.guild_id, client).catch(console.log));
                     client.players[queue.guild_id] = player;
 
                     await entersState(connection, VoiceConnectionStatus.Ready, 30000);

@@ -18,12 +18,12 @@ async function queue(interaction, client) {
         .setComponents([
             new ButtonBuilder()
                 .setEmoji("<:Previous_Page:897314282872655983>")
-                .setCustomId("queue_btnLeft_0_nonfilter")
+                .setCustomId("queue_btnLeft")
                 .setDisabled(true)
                 .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
                 .setEmoji("<:Next_Page:897289358187589663>")
-                .setCustomId("queue_btnRight_5_nonfilter")
+                .setCustomId("queue_btnRight")
                 .setDisabled(false)
                 .setStyle(ButtonStyle.Success)
         ]);
@@ -55,6 +55,11 @@ ${queue.songs.splice(0, 5).map((song, index) => {
     let message = null;
     try {
         message = await interaction.reply({ content, components, ephemeral: true, fetchReply: true });
+        client.queue[interaction.user.id+"-"+interaction.guildId] = {
+            page: 1,
+            first: 0,
+            second: 5
+        };
     } catch (error) {
         console.log(error);
     }

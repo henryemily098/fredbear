@@ -99,7 +99,7 @@ module.exports = {
         let embed = new EmbedBuilder()
             .setColor(client.config.defaultColor)
             .setAuthor({ name: `| Removed song from queue!`, iconURL: client.user.displayAvatarURL({ size: 1024 }) })
-            .setDescription(`[${selectedSong.title}](${selectedSong.url}) - [<@${selectedSong.requestedUser.id}>]`);
+            .setDescription(`[${selectedSong.title}](${selectedSong.url}) - [<@${selectedSong.requestedUserId}>]`);
         try {
             await queue.save();
             await interaction.reply({ embeds: [embed] });

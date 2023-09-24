@@ -14,7 +14,9 @@ module.exports = class extends Client {
             ]
         });
 
+        this.queue = {};
         this.players = {};
+        
         this.cooldown = new Map();
         this.commands = new Collection();
         this.config = require("./config.json");

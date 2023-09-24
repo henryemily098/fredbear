@@ -189,4 +189,5 @@ async function endedHandler(guild_id, client) {
 }
 
 
-module.exports = play;
+exports.play = play;
+exports.endedHandler = endedHandler;
