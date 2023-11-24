@@ -68,8 +68,20 @@ module.exports = {
         }
         else {
             let confirm = false;
-            let permission = channel.permissionFor(client.user);
-            if(permission.has("Connect")) return;
+            let permission = channel.permissionsFor(client.user);
+            if(!permission.has("Connect")) confirm = true;
+            if(!permission.has("Speak")) confirm = true;
+            if(confirm) {
+                try {
+                    await interaction.reply({
+                        content: "There's something wrong! Maybe i can't connect or speak in the channel!",
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.log(error);
+                }
+                return;
+            }
         }
 
         let query = interaction.options.get("query", true).value;
